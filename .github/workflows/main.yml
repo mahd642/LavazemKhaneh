@@ -7,16 +7,29 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Download project files
         uses: actions/checkout@v4
 
-      - name: Extract project
-        run: unzip -q AndroidProject_Files.zip -d project
+      - name: Check ZIP file
+        run: |
+          if [ ! -f AndroidProject_Files.zip ]; then
+            echo "ERROR: AndroidProject_Files.zip not found"
+            exit 1
+          fi
+
+      - name: Extract Android project
+        run: |
+          mkdir -p project
+          unzip -q AndroidProject_Files.zip -d project
+          find project -maxdepth 4 -type f | head -50
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -25,27 +38,39 @@ jobs:
           java-version: '17'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+          with:
+            packages: 'platform-tools'
+
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager --licenses
+          sdkmanager "platforms;android-34" "build-tools;34.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
 
       - name: Build APK
+        shell: bash
         run: |
-          FILE=$(find project -name settings.gradle -o -name settings.gradle.kts | head -n 1)
+          FILE=$(find project -type f \( -name settings.gradle -o -name settings.gradle.kts \) | head -n 1)
           if [ -z "$FILE" ]; then
-            echo "Gradle project not found"
+            echo "ERROR: Gradle project not found in ZIP"
             exit 1
           fi
-          cd "$(dirname "$FILE")"
-          gradle assembleDebug
+          PROJECT_DIR="$(dirname "$FILE")"
+          cd "$PROJECT_DIR"
+          if [ -f gradlew ]; then
+            chmod +x gradlew
+            ./gradlew --no-daemon assembleDebug
+          else
+            gradle --no-daemon assembleDebug
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: LavazemKhaneh-APK
-          path: project/**/app/build/outputs/apk/debug/app-debug.apk
+          path: project/**/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           
